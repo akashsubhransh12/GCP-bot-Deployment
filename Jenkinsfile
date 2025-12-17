@@ -64,7 +64,7 @@ pipeline {
             }
         }
 
-        stage('Generate Signed Download URL') {
+ stage('Generate Signed Download URL') {
     steps {
         withCredentials([file(credentialsId: 'gcp-sa-key', variable: 'GCP_KEY')]) {
             script {
@@ -72,20 +72,27 @@ pipeline {
                 gsutil signurl -d 15m "%GCP_KEY%" "${BUCKET}/${params.DLL_FILE}" > signed_url.txt
                 """
 
-                def output = readFile('signed_url.txt')
+                def signedOutput = readFile('signed_url.txt').trim()
+                def lines = signedOutput.split(/\r?\n/)
 
-                def signedUrl = output
-                    .readLines()
-                    .collect { it.trim() }
-                    .find { it.contains('https://') }
-                    ?.split('https://')[1]
-
-                if (!signedUrl) {
-                    error("Failed to generate signed URL")
+                // Skip header line, take data line
+                if (lines.size() < 2) {
+                    error("Signed URL output is invalid:\\n${signedOutput}")
                 }
 
-                env.SIGNED_URL = "https://${signedUrl}"
-                echo "Signed URL generated successfully"
+                // Split by whitespace and take last column (the URL)
+                def parts = lines[1].trim().split(/\s+/)
+                def signedUrl = parts[-1]
+
+                if (!signedUrl.startsWith("https://")) {
+                    error("Failed to extract signed URL:\\n${signedOutput}")
+                }
+
+                env.SIGNED_URL = signedUrl
+
+                echo "================ SIGNED DOWNLOAD URL (15 min) ================"
+                echo env.SIGNED_URL
+                echo "=============================================================="
             }
         }
     }
